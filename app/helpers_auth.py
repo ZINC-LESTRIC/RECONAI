@@ -27,8 +27,10 @@ def vp(p,h):
 
 def th(t): return hashlib.sha256(t.encode()).hexdigest()
 
-def issue(db,uid):
+def issue(db,uid,email=None):
     exp=datetime.utcnow()+timedelta(hours=24)
     st=SessionToken(user_id=uid,token_hash="x",expires_at=exp); db.add(st); db.flush()
-    tok=jwt.encode({"sub":str(uid),"sid":st.id,"exp":exp},SEC,algorithm="HS256")
+    claims={"sub":str(uid),"sid":st.id,"exp":exp}
+    if email: claims["email"]=email
+    tok=jwt.encode(claims,SEC,algorithm="HS256")
     st.token_hash=th(tok); return tok,exp
