@@ -13,36 +13,30 @@ def dbdep():
 
 def current_user(authorization:Optional[str]=Header(None),x_business_id:Optional[str]=Header(None),db:Session=Depends(dbdep)):
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(401,"Authentication required")
+        raise HTTPException(401,"Authentication required — please Log out and Sign in again")
     token=authorization.split(" ",1)[1].strip()
     try:
         payload=jwt.decode(token,SEC,algorithms=["HS256"])
-        uid=int(payload.get("sub"))
-        # Prefer live session when present (non-ephemeral / warm instance)
+        uid=int(payload["sub"])
+        email=(payload.get("email") or f"user{uid}@demo.local").lower().strip()
+        # Optional session check (warm instances)
         sid=payload.get("sid")
         if sid is not None:
             st=db.scalar(select(SessionToken).where(SessionToken.id==int(sid),SessionToken.token_hash==th(token)))
-            if st and not st.revoked_at and st.expires_at>=datetime.utcnow() and st.user_id==uid:
-                u=db.get(User,uid)
-                if u:
-                    setattr(u,"_active_business_id",int(x_business_id) if x_business_id and str(x_business_id).isdigit() else None)
-                    return u
-        # Vercel /tmp SQLite is wiped on cold start — accept valid JWT if user still exists
+            if st and st.revoked_at:
+                raise HTTPException(401,"Session revoked — please Sign in again")
         u=db.get(User,uid)
-        if u:
-            setattr(u,"_active_business_id",int(x_business_id) if x_business_id and str(x_business_id).isdigit() else None)
-            return u
-        # User row also gone (cold start). Recreate shell user so demo can continue.
-        email=(payload.get("email") or f"user{uid}@demo.local").lower()
-        existing=db.scalar(select(User).where(User.email==email))
-        if existing:
-            u=existing
-        else:
-            u=User(email=email,password_hash="!")
-            db.add(u); db.flush()
-            # keep id stable if possible is hard; use new id and accept
-            db.commit()
-            u=db.scalar(select(User).where(User.email==email))
+        if not u:
+            # /tmp DB wiped on Vercel cold start — restore shell user with same id
+            by_email=db.scalar(select(User).where(User.email==email))
+            if by_email:
+                u=by_email
+            else:
+                u=User(id=uid,email=email,password_hash="!")
+                db.add(u); db.commit()
+                u=db.get(User,uid) or db.scalar(select(User).where(User.email==email))
+        if not u:
+            raise HTTPException(401,"Authentication required — please Log out and Sign in again")
         setattr(u,"_active_business_id",int(x_business_id) if x_business_id and str(x_business_id).isdigit() else None)
         return u
     except HTTPException:
