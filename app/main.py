@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse,HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.models_base import Base
+from app.models_acct import Account,JournalEntry,JournalLine  # register tables on Base.metadata
 from app.helpers_auth import eng
 
 Base.metadata.create_all(eng)
